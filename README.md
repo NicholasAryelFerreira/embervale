@@ -9,7 +9,7 @@ brave the Hollow Ruins, and bring the crown home.
 
 > **About this project:** Embervale is inspired by the classic *The Legend of
 > Zelda* games (screen-by-screen overworld, sword-and-heart combat, item-gated
-> dungeon design). It was built entirely by an AI model — Claude, by Anthropic —
+> dungeon design). It was built entirely by an AI model — Claude Fable 5, by Anthropic —
 > as an experiment to test how far AI models can go in designing and shipping a
 > complete game: original pixel art, original chiptune compositions, world design,
 > enemy AI, and a finishable quest, all written as code in a single session.
