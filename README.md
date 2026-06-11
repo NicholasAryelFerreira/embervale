@@ -21,16 +21,16 @@ brave the Hollow Ruins, and bring the crown home.
 
 Option A — just open the file:
 
-1. Open **File Explorer** and go to this folder (`Embervale`).
+1. Open the folder where you cloned or downloaded this repository.
 2. Double-click **`index.html`**. It opens in your default browser and the game
    starts at the title screen.
 
 Option B — local server (recommended, avoids any browser file restrictions):
 
-1. Open **PowerShell** (press `Win`, type `powershell`, press Enter).
-2. Go to this folder:
+1. Open a terminal (PowerShell on Windows, Terminal on macOS/Linux).
+2. Go to the folder where you cloned this repository:
    ```
-   cd "C:\Users\nafer\github repo\Embervale"
+   cd path\to\Embervale
    ```
 3. Start a server:
    ```
