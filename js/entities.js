@@ -277,11 +277,13 @@ class Enemy {
 
 function spawnDrop(x, y) {
   const r = Math.random();
+  // hearts drop more often when the player is nearly dead
+  const heartChance = G.hp <= 1 ? 0.40 : 0.18;
   let type = null, n = 1;
-  if (r < 0.30) type = 'gem';
-  else if (r < 0.48) type = 'heart';
-  else if (r < 0.56 && G.inv.maxBombs > 0) { type = 'bombs'; n = 1; }
-  else if (r < 0.68 && G.inv.bow) { type = 'arrows'; n = 3; }
+  if (r < heartChance) type = 'heart';
+  else if (r < heartChance + 0.30) type = 'gem';
+  else if (r < heartChance + 0.38 && G.inv.maxBombs > 0) { type = 'bombs'; n = 1; }
+  else if (r < heartChance + 0.50 && G.inv.bow) { type = 'arrows'; n = 3; }
   if (type) G.pickups.push(new Pickup(x - 4, y - 4, type, n));
 }
 
@@ -1015,6 +1017,6 @@ class ShopItem {
     const spr = d.item === 'bombs' ? SPR.bomb_pickup : (d.item === 'arrows' ? SPR.arrow_pickup : SPR.it_heartcont);
     if (d.item === 'heartcont') ctx.drawImage(spr, this.x, this.y - 4);
     else ctx.drawImage(spr, this.x + 4, this.y);
-    FONT.draw(ctx, String(d.price), this.x + 8 - FONT.width(String(d.price)) / 2, this.y + 12, '#f2cf4a');
+    FONT5.draw(ctx, String(d.price), this.x + 8 - FONT5.width(String(d.price)) / 2, this.y + 12, '#f2cf4a');
   }
 }

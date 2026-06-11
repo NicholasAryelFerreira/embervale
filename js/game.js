@@ -9,12 +9,11 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
-// integer-scale canvas to window
+// scale canvas to window: integer steps when room allows (crisp pixels),
+// fractional shrink so the whole game still fits on small screens
 function fitCanvas() {
-  const scale = Math.max(1, Math.min(
-    Math.floor(window.innerWidth / 256),
-    Math.floor((window.innerHeight - 40) / 224)
-  ));
+  let scale = Math.min(window.innerWidth / 256, (window.innerHeight - 40) / 224);
+  if (scale >= 1) scale = Math.floor(scale);
   canvas.style.width = 256 * scale + 'px';
   canvas.style.height = 224 * scale + 'px';
 }
@@ -82,6 +81,7 @@ const G = {
   gates: [], gatesClosed: false,
   stats: { time: 0, deaths: 0, kills: 0 },
   lowHpT: 0,
+  lastPos: { map: 'overworld', sx: 2, sy: 2, px: 7, py: 7 },
 
   toast(msg) { this.toastMsg = msg; this.toastT = 130; },
 
@@ -91,7 +91,7 @@ const G = {
       localStorage.setItem('embervale_save', JSON.stringify({
         flags: [...this.flags], inv: this.inv, hp: this.hp, maxHp: this.maxHp,
         gems: this.gems, keys: this.keys, equipped: this.equipped,
-        visited: [...this.visited], stats: this.stats
+        visited: [...this.visited], stats: this.stats, lastPos: this.lastPos
       }));
     } catch (e) { /* private mode */ }
   },
@@ -104,6 +104,7 @@ const G = {
       this.equipped = s.equipped;
       this.visited = new Set(s.visited || []);
       this.stats = s.stats || { time: 0, deaths: 0, kills: 0 };
+      if (s.lastPos) this.lastPos = s.lastPos;
       return true;
     } catch (e) { return false; }
   },
@@ -197,7 +198,10 @@ const G = {
     }
 
     // player placement
-    if (px !== undefined) { this.player.x = px * TILE; this.player.y = py * TILE; }
+    if (px !== undefined) {
+      this.player.x = px * TILE; this.player.y = py * TILE;
+      this.lastPos = { map, sx, sy, px, py };
+    }
     this.player.kx = 0; this.player.ky = 0;
 
     // music
@@ -237,7 +241,11 @@ const G = {
 
   // ---------- dialog ----------
   openDialog(text, cb) {
-    this.dialog = { text, shown: 0, done: false, cb: cb || null };
+    const lines = wrapText(text);
+    this.dialog = {
+      lines, shown: 0, done: false, cb: cb || null,
+      total: lines.reduce((n, l) => n + l.length, 0)
+    };
     this.state = 'dialog';
   },
 
@@ -297,26 +305,30 @@ const G = {
     this.equipped = null;
     this.stats = { time: 0, deaths: 0, kills: 0 };
     this.player = new Player();
-    this.player.x = 7 * 16; this.player.y = 7 * 16;
     this.clearSave();
-    this.loadRoom('overworld', 2, 2);
+    this.loadRoom('overworld', 2, 2, 7, 7);
     this.state = 'play';
-    this.openDialog("EMBERVALE WITHERS...\nTHE ELDER OF THE WESTERN\nHOLLOW CALLS FOR YOU,\nRUA.");
+    this.openDialog("EMBERVALE WITHERS... THE ELDER OF THE WESTERN HOLLOW CALLS FOR YOU, RUA.");
   },
 
   continueGame() {
     if (!this.loadSave()) { this.newGame(); return; }
     this.player = new Player();
-    this.player.x = 7 * 16; this.player.y = 7 * 16;
-    this.loadRoom('overworld', 2, 2);
+    // resume where the player last was; fall back to the meadow if the
+    // saved spot is somehow blocked
+    const lp = this.lastPos;
+    this.loadRoom(lp.map, lp.sx, lp.sy, lp.px, lp.py);
+    const p = this.player;
+    if (rectSolid(p.x + p.hx, p.y + p.hy, p.hw, p.hh)) {
+      this.loadRoom('overworld', 2, 2, 7, 7);
+    }
     this.state = 'play';
   },
 
   respawn() {
     this.hp = this.maxHp;
     this.player = new Player();
-    this.player.x = 7 * 16; this.player.y = 7 * 16;
-    this.loadRoom('overworld', 2, 2);
+    this.loadRoom('overworld', 2, 2, 7, 7);
     this.state = 'play';
   }
 };
@@ -631,6 +643,14 @@ function updateScroll() {
   if (s.t >= s.dur) {
     G.scroll = null;
     G.state = 'play';
+    // remember where we entered this screen so Continue resumes here
+    const p = G.player;
+    G.lastPos = {
+      map: G.map, sx: G.sx, sy: G.sy,
+      px: Math.max(0, Math.min(15, Math.floor(p.cx / TILE))),
+      py: Math.max(0, Math.min(10, Math.floor(p.cy / TILE)))
+    };
+    G.save();
   }
 }
 
@@ -692,7 +712,7 @@ function renderHUD() {
   ctx.fillRect(0, HUD_H - 2, 256, 1);
 
   // hearts
-  FONT.draw(ctx, '-LIFE-', 8, 5, '#f47070');
+  FONT5.draw(ctx, 'LIFE', 8, 4, '#f47070');
   for (let i = 0; i < G.maxHp; i++) {
     const hx = 8 + (i % 4) * 9, hy = 13 + Math.floor(i / 4) * 9;
     const fill = G.hp - i;
@@ -701,18 +721,18 @@ function renderHUD() {
 
   // counters
   ctx.drawImage(SPR.gem, 52, 12);
-  FONT.draw(ctx, String(G.gems).padStart(3, '0'), 62, 14, '#fff');
+  FONT5.draw(ctx, String(G.gems).padStart(3, '0'), 62, 13, '#fff');
   ctx.drawImage(SPR.key, 52, 22);
-  FONT.draw(ctx, 'X' + G.keys, 62, 24, '#fff');
+  FONT5.draw(ctx, 'X' + G.keys, 62, 23, '#fff');
   if (G.inv.maxBombs > 0) {
     ctx.drawImage(SPR.bomb_pickup, 52, 32);
-    FONT.draw(ctx, 'X' + G.inv.bombs, 62, 34, '#fff');
+    FONT5.draw(ctx, 'X' + G.inv.bombs, 62, 33, '#fff');
   }
   if (G.inv.bow) {
     ctx.drawImage(SPR.arrow_pickup, 80, 32);
-    FONT.draw(ctx, 'X' + G.inv.arrows, 89, 34, '#fff');
+    FONT5.draw(ctx, 'X' + G.inv.arrows, 89, 33, '#fff');
   }
-  if (G.inv.bosskey) ctx.drawImage(SPR.it_bosskey, 78, 16);
+  if (G.inv.bosskey) ctx.drawImage(SPR.it_bosskey, 162, 14);
 
   // weapon boxes
   drawSlot(ctx, 108, 8, 'Z', G.inv.sword ? 'it_sword' : null);
@@ -790,37 +810,59 @@ function renderMinimap() {
   }
 }
 
+// wrap text to fit the dialog box; '\n' forces a hard break
+const DIALOG_TEXT_W = 224;
+function wrapText(text) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const t = line ? line + ' ' + word : word;
+      if (line && FONT5.width(t) > DIALOG_TEXT_W) { out.push(line); line = word; }
+      else line = t;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+// shared dialog/item text box: dark panel, roomy padding, 5x7 font
+function drawTextBox(lines, shownChars, borderColor) {
+  const bh = 13 + lines.length * 9;
+  const by = 224 - bh - 6;
+  ctx.fillStyle = 'rgba(8,10,18,0.95)';
+  ctx.fillRect(6, by, 244, bh);
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(6.5, by + 0.5, 243, bh - 1);
+  let shown = 0;
+  for (let li = 0; li < lines.length; li++) {
+    if (shownChars !== null && shown >= shownChars) break;
+    const line = shownChars === null ? lines[li]
+      : lines[li].slice(0, Math.max(0, shownChars - shown));
+    FONT5.draw(ctx, line, 14, by + 7 + li * 9, '#f4f4f0');
+    shown += lines[li].length;
+  }
+  return { by, bh };
+}
+
 function renderDialogBox() {
   const d = G.dialog;
   if (!d) return;
-  const lines = d.text.split('\n');
-  const bh = 14 + lines.length * 8;
-  const by = 224 - bh - 6;
-  ctx.fillStyle = 'rgba(8,10,18,0.95)';
-  ctx.fillRect(8, by, 240, bh);
-  ctx.strokeStyle = '#5a6a8a';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(8.5, by + 0.5, 239, bh - 1);
-  let shown = 0;
-  for (let li = 0; li < lines.length; li++) {
-    if (shown >= d.shown) break;
-    const line = lines[li].slice(0, Math.max(0, d.shown - shown));
-    FONT.draw(ctx, line, 16, by + 8 + li * 8, '#f4f4f0');
-    shown += lines[li].length;
-  }
+  const { by, bh } = drawTextBox(d.lines, d.shown, '#5a6a8a');
   if (d.done && (G.animT >> 4) % 2 === 0) {
-    FONT.draw(ctx, '>', 238, by + bh - 9, '#f2cf4a');
+    FONT5.draw(ctx, '>', 238, by + bh - 10, '#f2cf4a');
   }
 }
 
 function renderToast() {
-  if (G.toastT <= 0 || G.state === 'dialog') return;
+  if (G.toastT <= 0 || G.state === 'dialog' || G.state === 'itemget') return;
   const a = Math.min(1, G.toastT / 30);
   ctx.globalAlpha = a;
-  const w = FONT.width(G.toastMsg) + 12;
+  const w = FONT5.width(G.toastMsg) + 12;
   ctx.fillStyle = 'rgba(8,10,18,0.85)';
-  ctx.fillRect(128 - w / 2, 204, w, 12);
-  FONT.draw(ctx, G.toastMsg, 128 - FONT.width(G.toastMsg) / 2 + 1, 207, '#f2cf4a');
+  ctx.fillRect(128 - w / 2, 202, w, 13);
+  FONT5.draw(ctx, G.toastMsg, 128 - FONT5.width(G.toastMsg) / 2 + 1, 205, '#f2cf4a');
   ctx.globalAlpha = 1;
 }
 
@@ -888,13 +930,13 @@ function renderTitle() {
 
   if ((G.titleT >> 5) % 2 === 0) {
     if (G.hasSave()) {
-      FONT.draw(ctx, 'Z: CONTINUE', 128 - FONT.width('Z: CONTINUE') / 2, 140, '#f4f4f0');
-      FONT.draw(ctx, 'X: NEW GAME', 128 - FONT.width('X: NEW GAME') / 2, 152, '#8a96b0');
+      FONT5.draw(ctx, 'Z: CONTINUE', 128 - FONT5.width('Z: CONTINUE') / 2, 138, '#f4f4f0');
+      FONT5.draw(ctx, 'X: NEW GAME', 128 - FONT5.width('X: NEW GAME') / 2, 152, '#8a96b0');
     } else {
-      FONT.draw(ctx, 'PRESS ENTER', 128 - FONT.width('PRESS ENTER') / 2, 144, '#f4f4f0');
+      FONT5.draw(ctx, 'PRESS ENTER', 128 - FONT5.width('PRESS ENTER') / 2, 144, '#f4f4f0');
     }
   }
-  FONT.draw(ctx, 'ARROWS MOVE - Z SWORD - X ITEM', 128 - FONT.width('ARROWS MOVE - Z SWORD - X ITEM') / 2, 206, '#5a6a8a');
+  FONT5.draw(ctx, 'ARROWS MOVE - Z SWORD - X ITEM', 128 - FONT5.width('ARROWS MOVE - Z SWORD - X ITEM') / 2, 204, '#5a6a8a');
 }
 
 const bigTextCache = {};
@@ -903,8 +945,8 @@ function drawBigText(text, cx, y, scale, color, shadow) {
   let cv = bigTextCache[key];
   if (!cv) {
     cv = document.createElement('canvas');
-    cv.width = FONT.width(text) + 2; cv.height = 7;
-    FONT.draw(cv.getContext('2d'), text, 0, 0, color);
+    cv.width = FONT5.width(text) + 2; cv.height = 8;
+    FONT5.draw(cv.getContext('2d'), text, 0, 0, color);
     bigTextCache[key] = cv;
   }
   const w = cv.width * scale, h = cv.height * scale;
@@ -913,8 +955,8 @@ function drawBigText(text, cx, y, scale, color, shadow) {
     let sv = bigTextCache[sk];
     if (!sv) {
       sv = document.createElement('canvas');
-      sv.width = cv.width; sv.height = 7;
-      FONT.draw(sv.getContext('2d'), text, 0, 0, shadow);
+      sv.width = cv.width; sv.height = 8;
+      FONT5.draw(sv.getContext('2d'), text, 0, 0, shadow);
       bigTextCache[sk] = sv;
     }
     ctx.imageSmoothingEnabled = false;
@@ -927,10 +969,10 @@ function drawBigText(text, cx, y, scale, color, shadow) {
 function updateDialog() {
   const d = G.dialog;
   G.animT++;
-  const total = d.text.replace(/\n/g, '').length;
+  const total = d.total;
   if (!d.done) {
-    d.shown += 1;
-    if (d.shown % 3 === 0) AudioSys.sfx('text');
+    d.shown += 2;
+    if (d.shown % 6 < 2) AudioSys.sfx('text');
     if (d.shown >= total) { d.shown = total; d.done = true; }
     if (Input.attack || Input.start) { d.shown = total; d.done = true; }
   } else if (Input.attack || Input.start) {
@@ -980,15 +1022,7 @@ function renderItemGet() {
   ctx.restore();
   // text box
   if (ig.t > 14) {
-    const text = DIALOG[ig.textKey] || '';
-    const lines = text.split('\n');
-    const bh = 14 + lines.length * 8;
-    const by = 224 - bh - 6;
-    ctx.fillStyle = 'rgba(8,10,18,0.95)';
-    ctx.fillRect(8, by, 240, bh);
-    ctx.strokeStyle = '#f2cf4a';
-    ctx.strokeRect(8.5, by + 0.5, 239, bh - 1);
-    lines.forEach((l, i) => FONT.draw(ctx, l, 16, by + 8 + i * 8, '#f4f4f0'));
+    drawTextBox(wrapText(DIALOG[ig.textKey] || ''), null, '#f2cf4a');
   }
 }
 
@@ -1020,11 +1054,11 @@ function renderPause() {
   ctx.fillRect(12, 30, 232, 164);
   ctx.strokeStyle = '#5a6a8a';
   ctx.strokeRect(12.5, 30.5, 231, 163);
-  FONT.draw(ctx, '- INVENTORY -', 128 - FONT.width('- INVENTORY -') / 2, 38, '#f2cf4a');
+  FONT5.draw(ctx, '- INVENTORY -', 128 - FONT5.width('- INVENTORY -') / 2, 38, '#f2cf4a');
 
   const items = pauseItems();
   if (items.length === 0) {
-    FONT.draw(ctx, 'NOTHING YET...', 128 - FONT.width('NOTHING YET...') / 2, 80, '#8a96b0');
+    FONT5.draw(ctx, 'NOTHING YET...', 128 - FONT5.width('NOTHING YET...') / 2, 80, '#8a96b0');
   }
   items.forEach((it, i) => {
     const x = 40 + i * 48, y = 60;
@@ -1035,12 +1069,12 @@ function renderPause() {
       ctx.strokeRect(x - 4.5, y - 4.5, 27, 27);
     }
     ctx.drawImage(SPR[it.spr], x + 1, y + 1);
-    if (it.equip && G.equipped === it.equip) FONT.draw(ctx, 'X', x + 18, y + 16, '#f2cf4a');
+    if (it.equip && G.equipped === it.equip) FONT5.draw(ctx, 'X', x + 16, y + 15, '#f2cf4a');
   });
   if (items[G.pauseCursor]) {
     const it = items[G.pauseCursor];
-    FONT.draw(ctx, it.label, 128 - FONT.width(it.label) / 2, 96, '#fff');
-    if (it.equip) FONT.draw(ctx, 'Z: SET TO X BUTTON', 128 - FONT.width('Z: SET TO X BUTTON') / 2, 106, '#8a96b0');
+    FONT5.draw(ctx, it.label, 128 - FONT5.width(it.label) / 2, 94, '#fff');
+    if (it.equip) FONT5.draw(ctx, 'Z: SET TO X BUTTON', 128 - FONT5.width('Z: SET TO X BUTTON') / 2, 106, '#8a96b0');
   }
 
   // quest hint
@@ -1051,14 +1085,14 @@ function renderPause() {
   else if (!G.inv.bosskey) hint = 'FIND THE GLOOM KEY IN THE EAST WING';
   else if (!G.inv.crown) hint = 'FACE THE GLOOM KNIGHT';
   else hint = 'EMBERVALE IS SAVED!';
-  FONT.draw(ctx, hint, 128 - FONT.width(hint) / 2, 130, '#5ad8e8');
+  FONT5.draw(ctx, hint, 128 - FONT5.width(hint) / 2, 128, '#5ad8e8');
 
   // stats
   const mins = Math.floor(G.stats.time / 3600);
-  FONT.draw(ctx, 'TIME ' + mins + 'M', 30, 160, '#8a96b0');
-  FONT.draw(ctx, 'KILLS ' + G.stats.kills, 100, 160, '#8a96b0');
-  FONT.draw(ctx, 'DEATHS ' + G.stats.deaths, 170, 160, '#8a96b0');
-  FONT.draw(ctx, 'ENTER: RESUME', 128 - FONT.width('ENTER: RESUME') / 2, 180, '#f4f4f0');
+  FONT5.draw(ctx, 'TIME ' + mins + 'M', 24, 158, '#8a96b0');
+  FONT5.draw(ctx, 'KILLS ' + G.stats.kills, 98, 158, '#8a96b0');
+  FONT5.draw(ctx, 'DEATHS ' + G.stats.deaths, 168, 158, '#8a96b0');
+  FONT5.draw(ctx, 'ENTER: RESUME', 128 - FONT5.width('ENTER: RESUME') / 2, 178, '#f4f4f0');
 }
 
 function updateGameover() {
@@ -1072,9 +1106,9 @@ function renderGameover() {
   ctx.fillRect(0, 0, 256, 224);
   drawBigText('YOU FELL...', 128, 70, 2, '#d83838', '#3a0a0a');
   if (G.gameoverT > 60 && (G.gameoverT >> 5) % 2 === 0) {
-    FONT.draw(ctx, 'PRESS ENTER TO RISE AGAIN', 128 - FONT.width('PRESS ENTER TO RISE AGAIN') / 2, 130, '#f4f4f0');
+    FONT5.draw(ctx, 'PRESS ENTER TO RISE AGAIN', 128 - FONT5.width('PRESS ENTER TO RISE AGAIN') / 2, 128, '#f4f4f0');
   }
-  FONT.draw(ctx, 'YOUR GEAR REMAINS YOURS', 128 - FONT.width('YOUR GEAR REMAINS YOURS') / 2, 150, '#5a6a8a');
+  FONT5.draw(ctx, 'YOUR GEAR REMAINS YOURS', 128 - FONT5.width('YOUR GEAR REMAINS YOURS') / 2, 150, '#5a6a8a');
 }
 
 function updateWin() {
@@ -1108,16 +1142,16 @@ function renderWin() {
 
   if (t > 60) drawBigText('THE CROWN RETURNS', 128, 108, 2, '#f2cf4a', '#8c5a1f');
   if (t > 120) {
-    FONT.draw(ctx, 'GLOOM LIFTS FROM EMBERVALE.', 128 - FONT.width('GLOOM LIFTS FROM EMBERVALE.') / 2, 132, '#f4f4f0');
-    FONT.draw(ctx, 'THE FORESTS BREATHE AGAIN.', 128 - FONT.width('THE FORESTS BREATHE AGAIN.') / 2, 142, '#f4f4f0');
+    FONT5.draw(ctx, 'GLOOM LIFTS FROM EMBERVALE.', 128 - FONT5.width('GLOOM LIFTS FROM EMBERVALE.') / 2, 132, '#f4f4f0');
+    FONT5.draw(ctx, 'THE FORESTS BREATHE AGAIN.', 128 - FONT5.width('THE FORESTS BREATHE AGAIN.') / 2, 143, '#f4f4f0');
   }
   if (t > 180) {
     const mins = Math.floor(G.stats.time / 3600);
-    FONT.draw(ctx, 'TIME ' + mins + 'M   DEATHS ' + G.stats.deaths + '   KILLS ' + G.stats.kills,
-      128 - FONT.width('TIME ' + mins + 'M   DEATHS ' + G.stats.deaths + '   KILLS ' + G.stats.kills) / 2, 162, '#8a96b0');
+    const statLine = 'TIME ' + mins + 'M  DEATHS ' + G.stats.deaths + '  KILLS ' + G.stats.kills;
+    FONT5.draw(ctx, statLine, 128 - FONT5.width(statLine) / 2, 162, '#8a96b0');
   }
   if (t > 240 && (t >> 5) % 2 === 0) {
-    FONT.draw(ctx, 'THANK YOU FOR PLAYING', 128 - FONT.width('THANK YOU FOR PLAYING') / 2, 184, '#5ad8e8');
+    FONT5.draw(ctx, 'THANK YOU FOR PLAYING', 128 - FONT5.width('THANK YOU FOR PLAYING') / 2, 184, '#5ad8e8');
   }
 }
 

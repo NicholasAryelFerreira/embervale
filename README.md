@@ -74,13 +74,16 @@ Option B — local server (recommended, avoids any browser file restrictions):
 - Secrets: bombable cracked rock hides treasure caves, a fairy spring heals you,
   and a full-health sword fires beams.
 
-The game saves automatically (browser localStorage). Dying costs nothing but pride —
-your gear stays with you.
+The game saves automatically (browser localStorage), including where you are —
+**Continue** drops you back on the screen you left. Dying costs nothing but pride —
+your gear stays with you, and enemies drop hearts more generously while you're
+on your last one.
 
 ## Tech
 
 - `js/sprites.js` — every sprite is text-encoded pixel art with auto-outlining; the
-  tile atlas is drawn procedurally; 3×5 bitmap font.
+  tile atlas is drawn procedurally; a 5×7 bitmap font for dialog and UI (with
+  automatic word-wrap) plus a compact 3×5 font for tight HUD labels.
 - `js/audio.js` — a chiptune tracker (square/triangle/noise channels) playing seven
   original compositions, plus ~30 synthesized sound effects.
 - `js/world.js` — 20 hand-authored overworld screens, a 12-room dungeon,
