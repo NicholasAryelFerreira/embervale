@@ -1,5 +1,9 @@
 # EMBERVALE — A Fox Tale
 
+### [▶ Play now in your browser](https://nicholasaryelferreira.github.io/embervale/)
+
+[![Play now](https://img.shields.io/badge/▶_Play_now-Embervale-c0392b?style=for-the-badge)](https://nicholasaryelferreira.github.io/embervale/)
+
 A complete Zelda-like action-adventure that runs in your browser. No installs, no
 dependencies — pure HTML5 Canvas + Web Audio, all art and music generated from code.
 
